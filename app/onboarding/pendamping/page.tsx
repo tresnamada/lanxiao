@@ -2,9 +2,11 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, Check, Search, User, Bot, Send, Loader2, UserCircle } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
+import { useSession } from "next-auth/react";
+import { createData, getParentByCode } from "@/actions/onboardingSubmit";
+import { OnboardingType } from "@/types/onboarding";
 
 type Message = {
   id: string;
@@ -14,6 +16,7 @@ type Message = {
 
 export default function OnboardingPendampingChat() {
   const router = useRouter();
+  const { update } = useSession();
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
@@ -23,7 +26,28 @@ export default function OnboardingPendampingChat() {
   const [age, setAge] = useState("");
   const [uniqueCode, setUniqueCode] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [parentFound, setParentFound] = useState<{ name: string; age: number } | null>(null);
+  const [parentFound, setParentFound] = useState<{ name: string | null; age: number } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    const data = {
+      usia: age,
+      code: uniqueCode,
+    };
+
+    const result = await createData(OnboardingType.PENDAMPING, data);
+
+    if (result.success) {
+      await update({ isOnboarded: true });
+      await update({ isOnboarded: true });
+      router.refresh();
+      router.push("/");
+    } else {
+      console.log(result.error || "Gagal menyimpan data");
+    }
+    setIsSubmitting(false);
+  };
 
   const addMessage = (msg: Message) => {
     setMessages((prev) => [...prev, msg]);
@@ -38,18 +62,6 @@ export default function OnboardingPendampingChat() {
     }
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, isTyping]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      handleBotResponse("Halo! Senang bertemu dengan Anda. Saya asisten pendamping Lansat untuk mempermudah Anda memantau kesehatan keluarga. 😊", 0);
-      handleBotResponse("Sebelum kita mulai, boleh tahu berapa usia Anda?", 1000);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
-
   const handleBotResponse = (content: string | React.ReactNode, delay = 1000) => {
     setIsTyping(true);
     setTimeout(() => {
@@ -61,6 +73,18 @@ export default function OnboardingPendampingChat() {
       });
     }, delay);
   };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      handleBotResponse("Halo! Senang bertemu dengan Anda. Saya asisten pendamping Lansat untuk mempermudah Anda memantau kesehatan keluarga. 😊", 0);
+      handleBotResponse("Sebelum kita mulai, boleh tahu berapa usia Anda?", 1000);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleUserAnswer = (content: string, nextAction: () => void) => {
     addMessage({
@@ -86,15 +110,19 @@ export default function OnboardingPendampingChat() {
 
   const handleSearchParent = async () => {
     if (!uniqueCode || uniqueCode.length < 8) return;
-    
+
     setIsSearching(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const result = await getParentByCode(uniqueCode);
     setIsSearching(false);
-    
-    // Simulate finding parent
-    const foundParent = { name: "Bapak Budi", age: 68 };
+
+    if (!result.success || !result.data) {
+      console.log(result.error || "Kode tidak ditemukan");
+      return;
+    }
+
+    const foundParent = result.data;
     setParentFound(foundParent);
-    
+
     addMessage({
       id: Math.random().toString(),
       type: "user",
@@ -109,7 +137,7 @@ export default function OnboardingPendampingChat() {
             <UserCircle className="w-6 h-6 text-sage" />
           </div>
           <div className="text-left">
-            <p className="font-medium text-[#2F4F4F]">{foundParent.name}</p>
+            <p className="font-medium text-[#2F4F4F]">{foundParent.name || "Tanpa Nama"}</p>
             <p className="text-xs text-[#2F4F4F]/50">{foundParent.age} Tahun</p>
           </div>
         </div>
@@ -148,11 +176,10 @@ export default function OnboardingPendampingChat() {
                 </div>
               )}
               <div
-                className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${
-                  msg.type === "bot"
-                    ? "bg-white text-dark-slate shadow-sm border border-sage/5 rounded-bl-none"
-                    : "bg-sage text-white shadow-sage/20 shadow-lg rounded-br-none"
-                }`}
+                className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${msg.type === "bot"
+                  ? "bg-white text-dark-slate shadow-sm border border-sage/5 rounded-bl-none"
+                  : "bg-sage text-white shadow-sage/20 shadow-lg rounded-br-none"
+                  }`}
               >
                 {msg.content}
               </div>
@@ -208,7 +235,7 @@ export default function OnboardingPendampingChat() {
                 maxLength={8}
                 onKeyPress={(e) => e.key === "Enter" && uniqueCode.length === 8 && handleSearchParent()}
                 className="flex-1 bg-[#FDFDF5] border border-sage/20 rounded-2xl px-6 py-4 outline-none focus:border-sage tracking-[0.3em] font-medium"
-                placeholder="PRO88888"
+                placeholder="ABC12345"
               />
               <button
                 disabled={uniqueCode.length < 8 || isSearching}
@@ -223,7 +250,9 @@ export default function OnboardingPendampingChat() {
           {currentStep === 1.5 && !isTyping && (
             <div className="flex gap-3">
               <button
-                onClick={() => handleUserAnswer("Ya, betul sekali", () => nextStep(1))}
+                onClick={() => {
+                  handleUserAnswer("Ya, betul sekali", () => nextStep(1));
+                }}
                 className="btn-shiny flex-1 py-4 bg-sage text-white rounded-2xl font-medium"
               >
                 Ya, Betul
@@ -244,11 +273,13 @@ export default function OnboardingPendampingChat() {
           )}
 
           {currentStep === 2 && (
-            <Link href="/" className="block">
-              <button className="btn-shiny w-full py-5 bg-sage text-white rounded-2xl text-lg font-medium shadow-lg shadow-sage/20">
-                Selesai & Masuk Beranda
-              </button>
-            </Link>
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="btn-shiny w-full py-5 bg-sage text-white rounded-2xl text-lg font-medium shadow-lg shadow-sage/20 disabled:opacity-50"
+            >
+              {isSubmitting ? "Menyimpan..." : "Selesai & Masuk Beranda"}
+            </button>
           )}
         </div>
       </div>

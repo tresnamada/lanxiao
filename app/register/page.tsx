@@ -1,13 +1,13 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, Mail, Lock, Eye, EyeOff, ArrowLeft, User, UserCircle, Users } from "lucide-react";
+import { Mail, Eye, EyeOff, ArrowLeft, User, UserCircle, Users } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { register } from "@/actions/register";
+import { signIn } from "next-auth/react";
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -23,8 +23,24 @@ export default function RegisterPage() {
     setShowRoleModal(true);
   };
 
-  const handleRoleSelect = (role: string) => {
-    router.push(`/onboarding/${role}`);
+  const handleRoleSelect = async (role: string) => {
+    setIsLoading(true)
+    const result = await register({
+      name,
+      email,
+      password,
+      role: role.toUpperCase() as "ADMIN" | "ORANGTUA" | "PENDAMPING"
+    })
+    if (result?.success) {
+      await signIn('credentials', {
+        email: email,
+        password: password,
+        redirectTo: `/onboarding/${role.toLowerCase()}`,
+      })
+    } else {
+      setIsLoading(false)
+      console.log(result?.error)
+    }
   };
 
   return (
@@ -50,7 +66,7 @@ export default function RegisterPage() {
           className="mb-8"
         >
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sage to-sage/10 flex items-center justify-center shadow-2xl shadow-sage/20 mx-auto">
-          <h2 className="text-white">ganti logo ler</h2>
+            <h2 className="text-white">ganti logo ler</h2>
           </div>
         </motion.div>
 

@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Heart, Mail, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import {signIn} from "next-auth/react";
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -14,7 +15,11 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await signIn('credentials',{
+        email,
+        password,
+        redirectTo: '/'
+    })
     setIsLoading(false);
   };
 

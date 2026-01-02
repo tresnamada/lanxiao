@@ -5,6 +5,9 @@ import { Heart, ArrowLeft, Check, Copy, Plus, Send, User, Bot, Calendar, Activit
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
+import { useSession } from "next-auth/react";
+import { createData } from "@/actions/onboardingSubmit";
+import { OnboardingType } from "@/types/onboarding";
 
 type Message = {
   id: string;
@@ -17,6 +20,7 @@ const presetDiseases = ["Diabetes", "Hipertensi", "Jantung", "Stroke", "Asma", "
 
 export default function OnboardingOrangTuaChat() {
   const router = useRouter();
+  const { update } = useSession();
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
@@ -29,14 +33,41 @@ export default function OnboardingOrangTuaChat() {
   const [q1, setQ1] = useState(""); // Frequency
   const [q2, setQ2] = useState(""); // Breathless
   const [q3, setQ3] = useState(""); // Goal
-  const [uniqueCode] = useState(() => {
+  const [uniqueCode, setUniqueCode] = useState("");
+
+  useEffect(() => {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let code = "";
     for (let i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
-    return code;
-  });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUniqueCode(code);
+  }, []);
   const [copied, setCopied] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    const data = {
+      usia: age,
+      riwayatPenyakit: selectedDiseases,
+      frekuensiOlahraga: q1,
+      sesakNapas: q2,
+      tujuanOlahraga: q3,
+      code: uniqueCode,
+    };
+
+    const result = await createData(OnboardingType.ORANGTUA, data);
+
+    if (result.success) {
+      await update({ isOnboarded: true });
+      router.refresh();
+      router.push("/");
+    } else {
+      console.log(result.error || "Gagal menyimpan data")
+    }
+    setIsSubmitting(false);
+  };
 
   const addMessage = (msg: Message) => {
     setMessages((prev) => [...prev, msg]);
@@ -49,6 +80,18 @@ export default function OnboardingOrangTuaChat() {
         behavior: "smooth",
       });
     }
+  };
+
+  const handleBotResponse = (content: string | React.ReactNode, delay = 1000) => {
+    setIsTyping(true);
+    setTimeout(() => {
+      setIsTyping(false);
+      addMessage({
+        id: Math.random().toString(),
+        type: "bot",
+        content,
+      });
+    }, delay);
   };
 
   useEffect(() => {
@@ -64,18 +107,6 @@ export default function OnboardingOrangTuaChat() {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleBotResponse = (content: string | React.ReactNode, delay = 1000) => {
-    setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      addMessage({
-        id: Math.random().toString(),
-        type: "bot",
-        content,
-      });
-    }, delay);
-  };
-
   const handleUserAnswer = (content: string, nextAction: () => void) => {
     addMessage({
       id: Math.random().toString(),
@@ -85,9 +116,17 @@ export default function OnboardingOrangTuaChat() {
     nextAction();
   };
 
-  const nextStep = (step: number) => {
+  const handleAgeSubmit = (ageVal: string) => {
+    if (ageVal && !isNaN(parseInt(ageVal))) {
+      setAge(ageVal);
+      handleUserAnswer(`${ageVal} Tahun`, () => nextStep(0));
+    }
+  };
+
+  const nextStep = (step: number, value?: string) => {
     switch (step) {
       case 0: // After Age
+        if (!age && !value) return;
         handleBotResponse("Terima kasih. Selanjutnya, apakah Anda memiliki riwayat penyakit tertentu yang perlu kami ketahui?", 1000);
         setCurrentStep(1);
         break;
@@ -97,21 +136,24 @@ export default function OnboardingOrangTuaChat() {
         setCurrentStep(2);
         break;
       case 2: // After Q1
+        if (!q1 && !value) return;
         handleBotResponse("Mengerti. Pertanyaan kedua: Apakah Anda sering merasa sesak napas saat berjalan kaki selama 10 menit?", 1000);
         setCurrentStep(3);
         break;
       case 3: // After Q2
+        if (!q2 && !value) return;
         handleBotResponse("Terakhir: Apa tujuan utama Anda ingin berolahraga?", 1000);
         setCurrentStep(4);
         break;
       case 4: // Final
+        if (!q3 && !value) return;
         handleBotResponse("Luar biasa! Terima kasih atas informasinya. Semua data telah kami sesuaikan untuk program latihan Anda.", 1000);
         handleBotResponse(
           <div className="flex flex-col items-center gap-4">
             <span>Pendaftaran selesai! Ini adalah kode unik Anda untuk dibagikan kepada pendamping/anak Anda:</span>
             <div className="bg-white p-4 rounded-2xl border border-[#8A9A5B]/20 w-full flex items-center justify-between shadow-sm mt-2 relative overflow-hidden group">
               <span className="text-2xl font-bold tracking-widest text-[#556B2F]">{uniqueCode}</span>
-              <button 
+              <button
                 onClick={() => {
                   navigator.clipboard.writeText(uniqueCode);
                   setCopied(true);
@@ -120,12 +162,12 @@ export default function OnboardingOrangTuaChat() {
                 className="p-2 text-[#8A9A5B] hover:bg-[#8A9A5B]/10 rounded-xl transition-colors"
               >
                 <div className="relative w-5 h-5">
-                   <Copy className={`w-5 h-5 absolute inset-0 transition-all duration-300 ${copied ? 'opacity-0 scale-50' : 'opacity-100 scale-100'}`} />
-                   <Check className={`w-5 h-5 absolute inset-0 transition-all duration-300 text-green-500 ${copied ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`} />
+                  <Copy className={`w-5 h-5 absolute inset-0 transition-all duration-300 ${copied ? 'opacity-0 scale-50' : 'opacity-100 scale-100'}`} />
+                  <Check className={`w-5 h-5 absolute inset-0 transition-all duration-300 text-green-500 ${copied ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`} />
                 </div>
               </button>
             </div>
-          </div>, 
+          </div>,
           2000
         );
         setCurrentStep(5);
@@ -135,7 +177,7 @@ export default function OnboardingOrangTuaChat() {
   };
 
   const toggleDisease = (disease: string) => {
-    setSelectedDiseases(prev => 
+    setSelectedDiseases(prev =>
       prev.includes(disease) ? prev.filter(d => d !== disease) : [...prev, disease]
     );
   };
@@ -168,11 +210,10 @@ export default function OnboardingOrangTuaChat() {
                 </div>
               )}
               <div
-                className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${
-                  msg.type === "bot"
-                    ? "bg-white text-dark-slate shadow-sm border border-sage/5 rounded-bl-none"
-                    : "bg-sage text-white shadow-sage/20 shadow-lg rounded-br-none"
-                }`}
+                className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${msg.type === "bot"
+                  ? "bg-white text-dark-slate shadow-sm border border-sage/5 rounded-bl-none"
+                  : "bg-sage text-white shadow-sage/20 shadow-lg rounded-br-none"
+                  }`}
               >
                 {msg.content}
               </div>
@@ -214,13 +255,13 @@ export default function OnboardingOrangTuaChat() {
                 type="number"
                 value={age}
                 onChange={(e) => setAge(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && age && handleUserAnswer(`${age} Tahun`, () => nextStep(0))}
+                onKeyPress={(e) => e.key === "Enter" && age && handleAgeSubmit(age)}
                 className="flex-1 bg-white border border-sage/20 rounded-2xl px-6 py-4 outline-none focus:border-sage transition-all"
                 placeholder="Masukkan usia Anda..."
               />
               <button
                 disabled={!age}
-                onClick={() => handleUserAnswer(`${age} Tahun`, () => nextStep(0))}
+                onClick={() => handleAgeSubmit(age)}
                 className="btn-shiny w-14 h-14 bg-[#8A9A5B] text-white rounded-2xl flex items-center justify-center disabled:opacity-50"
               >
                 <Send className="w-6 h-6" />
@@ -235,11 +276,10 @@ export default function OnboardingOrangTuaChat() {
                   <button
                     key={d}
                     onClick={() => toggleDisease(d)}
-                    className={`px-4 py-2 rounded-xl text-xs font-medium border transition-all ${
-                      selectedDiseases.includes(d)
-                        ? "bg-sage border-sage text-white"
-                        : "bg-white border-sage/20 text-sage/60"
-                    }`}
+                    className={`px-4 py-2 rounded-xl text-xs font-medium border transition-all ${selectedDiseases.includes(d)
+                      ? "bg-sage border-sage text-white"
+                      : "bg-white border-sage/20 text-sage/60"
+                      }`}
                   >
                     {d}
                   </button>
@@ -257,6 +297,7 @@ export default function OnboardingOrangTuaChat() {
                   onClick={() => {
                     const finalSelection = [...selectedDiseases];
                     if (customDisease) finalSelection.push(customDisease);
+                    setSelectedDiseases(finalSelection);
                     const ans = finalSelection.length > 0 ? finalSelection.join(", ") : "Tidak ada";
                     handleUserAnswer(ans, () => nextStep(1));
                   }}
@@ -273,7 +314,10 @@ export default function OnboardingOrangTuaChat() {
               {["Hampir Setiap Hari", "3-4 Kali Seminggu", "1-2 Kali Seminggu", "Jarang Sekali"].map((opt) => (
                 <button
                   key={opt}
-                  onClick={() => handleUserAnswer(opt, () => nextStep(2))}
+                  onClick={() => {
+                    setQ1(opt);
+                    handleUserAnswer(opt, () => nextStep(2, opt));
+                  }}
                   className="p-4 bg-white border border-[#8A9A5B]/20 rounded-2xl text-xs text-[#2F4F4F] hover:bg-[#8A9A5B]/5 transition-all text-center"
                 >
                   {opt}
@@ -285,13 +329,19 @@ export default function OnboardingOrangTuaChat() {
           {currentStep === 3 && !isTyping && (
             <div className="flex gap-3 justify-center">
               <button
-                onClick={() => handleUserAnswer("Ya, sering", () => nextStep(3))}
+                onClick={() => {
+                  setQ2("Ya, sering");
+                  handleUserAnswer("Ya, sering", () => nextStep(3, "Ya, sering"));
+                }}
                 className="btn-shiny flex-1 py-4 bg-[#8A9A5B] text-white rounded-2xl font-medium"
               >
                 Ya
               </button>
               <button
-                onClick={() => handleUserAnswer("Tidak pernah", () => nextStep(3))}
+                onClick={() => {
+                  setQ2("Tidak pernah");
+                  handleUserAnswer("Tidak pernah", () => nextStep(3, "Tidak pernah"));
+                }}
                 className="flex-1 py-4 bg-white border border-[#8A9A5B]/30 text-[#8A9A5B] rounded-2xl font-medium"
               >
                 Tidak
@@ -320,11 +370,13 @@ export default function OnboardingOrangTuaChat() {
           )}
 
           {currentStep === 5 && (
-            <Link href="/" className="block">
-              <button className="btn-shiny w-full py-5 bg-sage text-white rounded-2xl text-lg font-medium shadow-lg shadow-sage/20">
-                Selesai & Masuk Beranda
-              </button>
-            </Link>
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="btn-shiny w-full py-5 bg-sage text-white rounded-2xl text-lg font-medium shadow-lg shadow-sage/20 disabled:opacity-50"
+            >
+              {isSubmitting ? "Menyimpan..." : "Selesai & Masuk Beranda"}
+            </button>
           )}
         </div>
       </div>
